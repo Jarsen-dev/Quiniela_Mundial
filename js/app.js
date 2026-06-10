@@ -34,6 +34,12 @@ function formatKickoff(iso) {
   });
 }
 
+// Supabase Auth requiere un correo: lo generamos a partir del usuario,
+// ya que la app solo pide nombre de usuario y contraseña.
+function usernameToEmail(username) {
+  return `${username.toLowerCase()}@quiniela-mundial.local`;
+}
+
 // ---------- Navegación ----------
 function showView(name) {
   document.querySelectorAll(".view").forEach((v) => v.classList.add("hidden"));
@@ -104,7 +110,7 @@ function setupAuth() {
       return;
     }
     const username = $("reg-user").value.trim();
-    const email = $("reg-email").value.trim();
+    const email = usernameToEmail(username);
     const pass = $("reg-pass").value;
     if (!photoFile) {
       err.textContent = "La foto de perfil es obligatoria. 📷";
@@ -153,14 +159,14 @@ function setupAuth() {
       });
       if (profileError) { err.textContent = profileError.message; return; }
 
-      // 5) Iniciar sesión (si el proyecto requiere confirmación de email,
-      //    no habrá sesión todavía y se le pedirá iniciar sesión más tarde)
+      // 5) Iniciar sesión (si "Confirm email" está activo en Supabase, no
+      //    habrá sesión todavía: pedimos al usuario iniciar sesión manualmente)
       if (signUpData.session) {
         await loadCurrentUser();
         enterApp();
       } else {
         err.style.color = "var(--accent)";
-        err.textContent = "Cuenta creada. Revisa tu correo para confirmarla y luego inicia sesión.";
+        err.textContent = "Cuenta creada. Ahora inicia sesión con tu usuario y contraseña.";
       }
     } finally {
       submitBtn.disabled = false;
@@ -171,11 +177,12 @@ function setupAuth() {
     e.preventDefault();
     const err = $("login-error");
     err.textContent = "";
-    const email = $("login-email").value.trim();
+    const username = $("login-user").value.trim();
     const pass = $("login-pass").value;
+    const email = usernameToEmail(username);
 
     const { error } = await supabaseClient.auth.signInWithPassword({ email, password: pass });
-    if (error) { err.textContent = "Correo o contraseña incorrectos."; return; }
+    if (error) { err.textContent = "Usuario o contraseña incorrectos."; return; }
 
     await loadCurrentUser();
     enterApp();
