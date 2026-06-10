@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Quiniela Mundial 2026 ⚽</title>
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+
+  <!-- ===== NAVBAR ===== -->
+  <header class="navbar">
+    <div class="nav-brand">
+      <span class="ball">⚽</span>
+      <h1>Quiniela <span class="accent">Mundial 2026</span></h1>
+    </div>
+    <nav id="nav-links" class="nav-links hidden">
+      <button data-view="matches" class="nav-btn active">Partidos</button>
+      <button data-view="myvotes" class="nav-btn">Mis Votos</button>
+      <button data-view="ranking" class="nav-btn">Ranking</button>
+    </nav>
+    <div id="nav-user" class="nav-user hidden">
+      <img id="nav-avatar" class="avatar avatar-sm" alt="perfil" />
+      <span id="nav-username"></span>
+      <span id="nav-points" class="points-badge">0 pts</span>
+      <button id="btn-logout" class="btn btn-outline btn-sm">Salir</button>
+    </div>
+  </header>
+
+  <main id="app">
+
+    <!-- ===== AUTH ===== -->
+    <section id="view-auth" class="view">
+      <div class="auth-card">
+        <div class="auth-tabs">
+          <button id="tab-login" class="tab active">Iniciar Sesión</button>
+          <button id="tab-register" class="tab">Crear Cuenta</button>
+        </div>
+
+        <form id="form-login" class="auth-form">
+          <h2>Bienvenido de vuelta 👋</h2>
+          <input type="text" id="login-user" placeholder="Usuario" required autocomplete="username" />
+          <input type="password" id="login-pass" placeholder="Contraseña" required autocomplete="current-password" />
+          <button type="submit" class="btn btn-primary">Entrar</button>
+          <p id="login-error" class="error"></p>
+        </form>
+
+        <form id="form-register" class="auth-form hidden">
+          <h2>Únete a la quiniela 🏆</h2>
+          <p id="register-deadline" class="deadline-note"></p>
+          <input type="text" id="reg-user" placeholder="Usuario" required minlength="3" autocomplete="username" />
+          <input type="password" id="reg-pass" placeholder="Contraseña" required minlength="4" autocomplete="new-password" />
+          <label class="photo-upload" id="photo-label">
+            <input type="file" id="reg-photo" accept="image/*" hidden />
+            <img id="photo-preview" class="hidden" alt="vista previa" />
+            <span id="photo-text">📷 Sube tu foto de perfil (obligatoria)</span>
+          </label>
+          <button type="submit" class="btn btn-primary">Registrarme</button>
+          <p id="register-error" class="error"></p>
+        </form>
+      </div>
+    </section>
+
+    <!-- ===== PARTIDOS ===== -->
+    <section id="view-matches" class="view hidden">
+      <h2 class="view-title">Vota los resultados</h2>
+      <p class="view-sub">Elige el resultado de cada partido. Una vez enviado tu voto, <strong>no podrás cambiarlo</strong>.</p>
+      <div id="matches-list" class="matches-grid"></div>
+    </section>
+
+    <!-- ===== MIS VOTOS ===== -->
+    <section id="view-myvotes" class="view hidden">
+      <h2 class="view-title">Mis votaciones</h2>
+      <p class="view-sub">Tus pronósticos enviados (no editables).</p>
+      <div id="myvotes-list" class="matches-grid"></div>
+    </section>
+
+    <!-- ===== RANKING ===== -->
+    <section id="view-ranking" class="view hidden">
+      <h2 class="view-title">🏆 Ranking general</h2>
+      <ol id="ranking-list" class="ranking"></ol>
+    </section>
+  </main>
+
+  <!-- ===== ANIMACIÓN GOL +1 ===== -->
+  <div id="goal-overlay" class="overlay hidden">
+    <div class="goal-anim">
+      <div class="goal-ball">⚽</div>
+      <h2 class="goal-text">¡GOOOOL!</h2>
+      <div class="goal-plus">+<span id="goal-points">1</span></div>
+      <p id="goal-detail" class="goal-detail"></p>
+      <button id="goal-close" class="btn btn-primary">¡Vamos!</button>
+    </div>
+  </div>
+
+  <!-- ===== ANIMACIÓN CAMPEÓN ===== -->
+  <div id="champion-overlay" class="overlay hidden">
+    <canvas id="fireworks"></canvas>
+    <div class="champion-anim">
+      <div class="trophy">🏆</div>
+      <h2 class="champion-text">¡FELICIDADES!</h2>
+      <h3 id="champion-name"></h3>
+      <p>Eres el campeón de la Quiniela Mundial 2026</p>
+      <button id="champion-close" class="btn btn-gold">Cerrar</button>
+    </div>
+  </div>
+
+  <script src="js/data.js"></script>
+  <script src="js/results.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
