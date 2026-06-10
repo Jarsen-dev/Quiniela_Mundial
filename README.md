@@ -15,7 +15,7 @@ Quiniela del Mundial 2026 hecha con **HTML, CSS y JavaScript**, usando **Supabas
    - `public.profiles` — usuario, foto de perfil y registro de animaciones de gol mostradas.
    - `public.votes` — pronósticos por usuario y partido (solo `INSERT`/`SELECT`, **sin** `UPDATE`/`DELETE`: los votos quedan fijos para siempre).
    - El bucket de Storage `avatars` (público para lectura, cada usuario sube solo en su propia carpeta).
-5. (Opcional) En **Authentication → Settings**, desactiva "Confirm email" si quieres que los usuarios entren inmediatamente tras registrarse.
+5. La app solo pide **usuario y contraseña** (Supabase Auth internamente usa un correo generado a partir del usuario). En **Authentication → Settings**, **desactiva "Confirm email"** para que los usuarios puedan iniciar sesión de inmediato tras registrarse.
 
 ## Cómo usarla
 
@@ -28,7 +28,7 @@ python3 -m http.server 8000
 
 ## Funcionalidades
 
-- **Cuentas**: registro con correo, contraseña y **foto de perfil obligatoria** (se sube a Supabase Storage). Log in y log out con Supabase Auth.
+- **Cuentas**: registro con **usuario, contraseña y foto de perfil obligatoria** (se sube a Supabase Storage). Log in y log out con Supabase Auth.
 - **Cierre de registro**: la creación de cuentas se detiene automáticamente **2 horas antes del partido inaugural** (11 de junio de 2026, 20:00 CDMX, Estadio Azteca).
 - **Votación**: cada usuario pronostica el resultado de cada partido (local / empate / visita). El voto se guarda en la tabla `votes`, que **no permite UPDATE ni DELETE** — una vez enviado, queda visible en "Mis Votos" sin poder editarse.
 - **Resultados desde internet**: se consultan vía [football-data.org](https://www.football-data.org/) (pon tu API key gratuita en `js/results.js` → `RESULTS_CONFIG.footballDataApiKey`) o desde cualquier URL JSON simple (`simpleJsonUrl`).
