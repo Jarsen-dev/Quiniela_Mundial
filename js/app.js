@@ -1,33 +1,22 @@
 // ===== Quiniela Mundial 2026 — lógica principal =====
-// Base de datos: localStorage del navegador.
-//   qm_users   → { username: { pass, photo, votes:{matchId:outcome}, awarded:[matchId] } }
-//   qm_session → username con sesión activa
+// Base de datos: Supabase (PostgreSQL + Auth + Storage).
+//   - auth.users / public.profiles → cuentas y fotos de perfil
+//   - public.votes                  → pronósticos (insert-only, no editables)
+//   - storage bucket "avatars"      → fotos de perfil
 
-const DB = {
-  getUsers: () => JSON.parse(localStorage.getItem("qm_users") || "{}"),
-  saveUsers: (u) => localStorage.setItem("qm_users", JSON.stringify(u)),
-  getSession: () => localStorage.getItem("qm_session"),
-  setSession: (u) => localStorage.setItem("qm_session", u),
-  clearSession: () => localStorage.removeItem("qm_session"),
-};
-
-let currentUser = null;   // username
-let latestResults = {};   // { matchId: "home"|"draw"|"away" }
+let currentUser = null;     // { id, username, photo_url, awarded_goals }
+let allProfiles = [];       // [{ id, username, photo_url, awarded_goals }]
+let allVotes = [];          // [{ user_id, match_id, choice }]
+let myVotes = {};           // { matchId: choice } del usuario actual
+let latestResults = {};     // { matchId: "home"|"draw"|"away" }
 
 const $ = (id) => document.getElementById(id);
 
 // ---------- Utilidades ----------
-function hash(str) {
-  // hash simple (no criptográfico) para no guardar la contraseña en claro
-  let h = 0;
-  for (let i = 0; i < str.length; i++) h = (Math.imul(31, h) + str.charCodeAt(i)) | 0;
-  return String(h);
-}
-
-function userPoints(user) {
+function userPointsFromVotes(userId) {
   let pts = 0;
-  for (const [mid, vote] of Object.entries(user.votes || {})) {
-    if (latestResults[mid] && latestResults[mid] === vote) pts++;
+  for (const v of allVotes) {
+    if (v.user_id === userId && latestResults[v.match_id] === v.choice) pts++;
   }
   return pts;
 }
@@ -62,15 +51,14 @@ function updateNav() {
   $("nav-links").classList.toggle("hidden", !logged);
   $("nav-user").classList.toggle("hidden", !logged);
   if (logged) {
-    const u = DB.getUsers()[currentUser];
-    $("nav-avatar").src = u.photo;
-    $("nav-username").textContent = currentUser;
-    $("nav-points").textContent = userPoints(u) + " pts";
+    $("nav-avatar").src = currentUser.photo_url;
+    $("nav-username").textContent = currentUser.username;
+    $("nav-points").textContent = userPointsFromVotes(currentUser.id) + " pts";
   }
 }
 
 // ---------- Registro / Login ----------
-let photoData = null;
+let photoFile = null;
 
 function registrationOpen() {
   return Date.now() < REGISTRATION_DEADLINE.getTime();
@@ -96,60 +84,105 @@ function setupAuth() {
   $("reg-photo").onchange = (e) => {
     const file = e.target.files[0];
     if (!file) return;
+    photoFile = file;
     const reader = new FileReader();
     reader.onload = () => {
-      photoData = reader.result;
-      $("photo-preview").src = photoData;
+      $("photo-preview").src = reader.result;
       $("photo-preview").classList.remove("hidden");
       $("photo-text").textContent = "✅ Foto cargada (toca para cambiar)";
     };
     reader.readAsDataURL(file);
   };
 
-  $("form-register").onsubmit = (e) => {
+  $("form-register").onsubmit = async (e) => {
     e.preventDefault();
     const err = $("register-error");
     err.textContent = "";
+
     if (!registrationOpen()) {
       err.textContent = "El registro cerró 2 horas antes del partido inaugural.";
       return;
     }
-    const user = $("reg-user").value.trim();
+    const username = $("reg-user").value.trim();
+    const email = $("reg-email").value.trim();
     const pass = $("reg-pass").value;
-    if (!photoData) {
+    if (!photoFile) {
       err.textContent = "La foto de perfil es obligatoria. 📷";
       return;
     }
-    const users = DB.getUsers();
-    if (users[user]) {
-      err.textContent = "Ese usuario ya existe.";
-      return;
+
+    const submitBtn = e.target.querySelector("button[type=submit]");
+    submitBtn.disabled = true;
+    try {
+      // 1) Verificar que el nombre de usuario no esté en uso
+      const { data: existing } = await supabaseClient
+        .from("profiles")
+        .select("id")
+        .eq("username", username)
+        .maybeSingle();
+      if (existing) {
+        err.textContent = "Ese nombre de usuario ya existe.";
+        return;
+      }
+
+      // 2) Crear la cuenta en Supabase Auth
+      const { data: signUpData, error: signUpError } = await supabaseClient.auth.signUp({
+        email, password: pass,
+      });
+      if (signUpError) { err.textContent = signUpError.message; return; }
+
+      const user = signUpData.user;
+      if (!user) {
+        err.textContent = "No se pudo crear la cuenta. Intenta de nuevo.";
+        return;
+      }
+
+      // 3) Subir la foto de perfil al bucket "avatars"
+      const ext = photoFile.name.split(".").pop();
+      const path = `${user.id}/avatar.${ext}`;
+      const { error: uploadError } = await supabaseClient.storage
+        .from("avatars")
+        .upload(path, photoFile, { upsert: true });
+      if (uploadError) { err.textContent = "Error al subir la foto: " + uploadError.message; return; }
+
+      const { data: pub } = supabaseClient.storage.from("avatars").getPublicUrl(path);
+
+      // 4) Crear el perfil
+      const { error: profileError } = await supabaseClient.from("profiles").insert({
+        id: user.id, username, photo_url: pub.publicUrl,
+      });
+      if (profileError) { err.textContent = profileError.message; return; }
+
+      // 5) Iniciar sesión (si el proyecto requiere confirmación de email,
+      //    no habrá sesión todavía y se le pedirá iniciar sesión más tarde)
+      if (signUpData.session) {
+        await loadCurrentUser();
+        enterApp();
+      } else {
+        err.style.color = "var(--accent)";
+        err.textContent = "Cuenta creada. Revisa tu correo para confirmarla y luego inicia sesión.";
+      }
+    } finally {
+      submitBtn.disabled = false;
     }
-    users[user] = { pass: hash(pass), photo: photoData, votes: {}, awarded: [] };
-    DB.saveUsers(users);
-    DB.setSession(user);
-    currentUser = user;
-    enterApp();
   };
 
-  $("form-login").onsubmit = (e) => {
+  $("form-login").onsubmit = async (e) => {
     e.preventDefault();
     const err = $("login-error");
     err.textContent = "";
-    const user = $("login-user").value.trim();
+    const email = $("login-email").value.trim();
     const pass = $("login-pass").value;
-    const users = DB.getUsers();
-    if (!users[user] || users[user].pass !== hash(pass)) {
-      err.textContent = "Usuario o contraseña incorrectos.";
-      return;
-    }
-    DB.setSession(user);
-    currentUser = user;
+
+    const { error } = await supabaseClient.auth.signInWithPassword({ email, password: pass });
+    if (error) { err.textContent = "Correo o contraseña incorrectos."; return; }
+
+    await loadCurrentUser();
     enterApp();
   };
 
-  $("btn-logout").onclick = () => {
-    DB.clearSession();
+  $("btn-logout").onclick = async () => {
+    await supabaseClient.auth.signOut();
     currentUser = null;
     updateNav();
     $("view-matches").classList.add("hidden");
@@ -163,11 +196,39 @@ function setupAuth() {
   });
 }
 
+// ---------- Carga de datos desde Supabase ----------
+async function loadCurrentUser() {
+  const { data: { user } } = await supabaseClient.auth.getUser();
+  if (!user) { currentUser = null; return; }
+  const { data: profile } = await supabaseClient
+    .from("profiles")
+    .select("id, username, photo_url, awarded_goals")
+    .eq("id", user.id)
+    .single();
+  currentUser = profile;
+}
+
+async function loadProfiles() {
+  const { data } = await supabaseClient
+    .from("profiles")
+    .select("id, username, photo_url, awarded_goals");
+  allProfiles = data || [];
+}
+
+async function loadVotes() {
+  const { data } = await supabaseClient
+    .from("votes")
+    .select("user_id, match_id, choice");
+  allVotes = data || [];
+  myVotes = {};
+  for (const v of allVotes) {
+    if (v.user_id === currentUser.id) myVotes[v.match_id] = v.choice;
+  }
+}
+
 // ---------- Partidos y votos ----------
 function matchCard(match, { interactive }) {
-  const users = DB.getUsers();
-  const u = users[currentUser];
-  const vote = u.votes[match.id];
+  const vote = myVotes[match.id];
   const result = latestResults[match.id];
   const started = Date.now() >= new Date(match.kickoff).getTime();
 
@@ -200,7 +261,7 @@ function matchCard(match, { interactive }) {
   status.className = "vote-status";
 
   if (vote) {
-    // Voto ya enviado: solo lectura
+    // Voto ya enviado: solo lectura (la base de datos no permite editarlo)
     status.textContent = "Tu voto: " + outcomeLabel(match, vote);
     if (result) {
       if (vote === result) {
@@ -226,12 +287,21 @@ function matchCard(match, { interactive }) {
       const btn = document.createElement("button");
       btn.className = "vote-btn";
       btn.textContent = label;
-      btn.onclick = () => {
+      btn.onclick = async () => {
         if (!confirm(`¿Confirmas tu voto "${label}"? No podrás cambiarlo.`)) return;
-        const all = DB.getUsers();
-        all[currentUser].votes[match.id] = outcome;
-        DB.saveUsers(all);
+        opts.querySelectorAll("button").forEach((b) => (b.disabled = true));
+        const { error } = await supabaseClient.from("votes").insert({
+          user_id: currentUser.id, match_id: match.id, choice: outcome,
+        });
+        if (error) {
+          alert("No se pudo registrar tu voto: " + error.message);
+          opts.querySelectorAll("button").forEach((b) => (b.disabled = false));
+          return;
+        }
+        myVotes[match.id] = outcome;
+        allVotes.push({ user_id: currentUser.id, match_id: match.id, choice: outcome });
         renderMatches();
+        updateNav();
       };
       opts.appendChild(btn);
     });
@@ -253,8 +323,7 @@ function renderMatches() {
 function renderMyVotes() {
   const list = $("myvotes-list");
   list.innerHTML = "";
-  const u = DB.getUsers()[currentUser];
-  const voted = MATCHES.filter((m) => u.votes[m.id]);
+  const voted = MATCHES.filter((m) => myVotes[m.id]);
   if (!voted.length) {
     list.innerHTML = '<p class="view-sub">Aún no has votado ningún partido.</p>';
     return;
@@ -266,14 +335,13 @@ function renderMyVotes() {
 function renderRanking() {
   const list = $("ranking-list");
   list.innerHTML = "";
-  const users = DB.getUsers();
-  const ranked = Object.entries(users)
-    .map(([name, u]) => ({ name, photo: u.photo, points: userPoints(u) }))
+  const ranked = allProfiles
+    .map((p) => ({ id: p.id, name: p.username, photo: p.photo_url, points: userPointsFromVotes(p.id) }))
     .sort((a, b) => b.points - a.points || a.name.localeCompare(b.name));
 
   ranked.forEach((r, i) => {
     const li = document.createElement("li");
-    li.className = "rank-item" + (r.name === currentUser ? " me" : "");
+    li.className = "rank-item" + (r.id === currentUser.id ? " me" : "");
     const medal = ["🥇", "🥈", "🥉"][i] || i + 1;
     li.innerHTML = `
       <span class="rank-pos ${i === 0 ? "gold" : ""}">${medal}</span>
@@ -286,19 +354,23 @@ function renderRanking() {
 }
 
 // ---------- Animación de gol al iniciar sesión ----------
-function checkNewHits() {
-  const users = DB.getUsers();
-  const u = users[currentUser];
+async function checkNewHits() {
+  const awarded = currentUser.awarded_goals || [];
   const newHits = [];
-  for (const [mid, vote] of Object.entries(u.votes || {})) {
-    if (latestResults[mid] === vote && !(u.awarded || []).includes(mid)) {
-      newHits.push(mid);
+  for (const v of allVotes) {
+    if (v.user_id !== currentUser.id) continue;
+    if (latestResults[v.match_id] === v.choice && !awarded.includes(v.match_id)) {
+      newHits.push(v.match_id);
     }
   }
   if (!newHits.length) return;
 
-  u.awarded = (u.awarded || []).concat(newHits);
-  DB.saveUsers(users);
+  const updatedAwarded = awarded.concat(newHits);
+  await supabaseClient
+    .from("profiles")
+    .update({ awarded_goals: updatedAwarded })
+    .eq("id", currentUser.id);
+  currentUser.awarded_goals = updatedAwarded;
 
   $("goal-points").textContent = newHits.length;
   const names = newHits
@@ -311,14 +383,13 @@ function checkNewHits() {
 // ---------- Animación de campeón con fuegos artificiales ----------
 function checkChampion() {
   if (Date.now() < WORLD_CUP_END.getTime()) return;
-  const users = DB.getUsers();
-  const ranked = Object.entries(users)
-    .map(([name, u]) => ({ name, points: userPoints(u) }))
+  const ranked = allProfiles
+    .map((p) => ({ id: p.id, name: p.username, points: userPointsFromVotes(p.id) }))
     .sort((a, b) => b.points - a.points);
-  if (!ranked.length || ranked[0].name !== currentUser || ranked[0].points === 0) return;
+  if (!ranked.length || ranked[0].id !== currentUser.id || ranked[0].points === 0) return;
   if (ranked.length > 1 && ranked[1].points === ranked[0].points) return; // empate en la cima
 
-  $("champion-name").textContent = currentUser;
+  $("champion-name").textContent = currentUser.username;
   $("champion-overlay").classList.remove("hidden");
   startFireworks();
 }
@@ -380,13 +451,15 @@ function stopFireworks() {
 async function enterApp() {
   $("view-auth").classList.add("hidden");
   latestResults = await fetchResults();
+  await loadProfiles();
+  await loadVotes();
   updateNav();
   showView("matches");
-  checkNewHits();
+  await checkNewHits();
   checkChampion();
 }
 
-function init() {
+async function init() {
   setupAuth();
   $("goal-close").onclick = () => $("goal-overlay").classList.add("hidden");
   $("champion-close").onclick = () => {
@@ -394,10 +467,10 @@ function init() {
     stopFireworks();
   };
 
-  const session = DB.getSession();
-  if (session && DB.getUsers()[session]) {
-    currentUser = session;
-    enterApp();
+  const { data: { session } } = await supabaseClient.auth.getSession();
+  if (session) {
+    await loadCurrentUser();
+    if (currentUser) enterApp();
   }
 }
 
