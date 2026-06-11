@@ -36,8 +36,24 @@ function formatKickoff(iso) {
 
 // Supabase Auth requiere un correo: lo generamos a partir del usuario,
 // ya que la app solo pide nombre de usuario y contraseña.
+// IMPORTANTE: en Supabase → Authentication → Sign In / Providers → Email,
+// desactiva "Confirm email"; si no, intentará enviar correos de
+// confirmación a estas direcciones (que no existen) y fallará con
+// "email rate limit exceeded".
 function usernameToEmail(username) {
-  return `${username.toLowerCase()}@quiniela-mundial.local`;
+  return `${username.toLowerCase().replace(/[^a-z0-9._-]/g, "")}@quiniela-mundial.com`;
+}
+
+// Traduce los errores comunes de Supabase Auth a mensajes útiles
+function authErrorMessage(error) {
+  const msg = (error?.message || "").toLowerCase();
+  if (msg.includes("rate limit")) {
+    return "Error de configuración: desactiva 'Confirm email' en Supabase (Authentication → Providers → Email) y espera unos minutos.";
+  }
+  if (msg.includes("already registered")) return "Ese usuario ya tiene una cuenta.";
+  if (msg.includes("at least 6")) return "La contraseña debe tener al menos 6 caracteres.";
+  if (msg.includes("invalid")) return "Usuario o contraseña incorrectos.";
+  return error?.message || "Ocurrió un error. Intenta de nuevo.";
 }
 
 // ---------- Navegación ----------
@@ -135,7 +151,7 @@ function setupAuth() {
       const { data: signUpData, error: signUpError } = await supabaseClient.auth.signUp({
         email, password: pass,
       });
-      if (signUpError) { err.textContent = signUpError.message; return; }
+      if (signUpError) { err.textContent = authErrorMessage(signUpError); return; }
 
       const user = signUpData.user;
       if (!user) {
