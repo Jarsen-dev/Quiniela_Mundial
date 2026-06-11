@@ -15,7 +15,10 @@ Quiniela del Mundial 2026 hecha con **HTML, CSS y JavaScript**, usando **Supabas
    - `public.profiles` — usuario, foto de perfil y registro de animaciones de gol mostradas.
    - `public.votes` — pronósticos por usuario y partido (solo `INSERT`/`SELECT`, **sin** `UPDATE`/`DELETE`: los votos quedan fijos para siempre).
    - El bucket de Storage `avatars` (público para lectura, cada usuario sube solo en su propia carpeta).
-5. La app solo pide **usuario y contraseña** (Supabase Auth internamente usa un correo generado a partir del usuario). En **Authentication → Settings**, **desactiva "Confirm email"** para que los usuarios puedan iniciar sesión de inmediato tras registrarse.
+5. **OBLIGATORIO** — La app solo pide usuario y contraseña (Supabase Auth internamente usa un correo generado a partir del usuario, que no existe realmente). Por eso debes desactivar la confirmación por correo:
+   - Ve a **Authentication → Sign In / Providers → Email**.
+   - Desactiva el interruptor **"Confirm email"** y guarda.
+   - Si no lo haces, Supabase intentará enviar correos de confirmación a direcciones inexistentes y el registro fallará con `email rate limit exceeded`.
 
 ## Cómo usarla
 
